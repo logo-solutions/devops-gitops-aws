@@ -1,0 +1,142 @@
+.init:
+  image:
+    entrypoint: [ "" ]
+    name: "hashicorp/terraform:1.4.0"
+  before_script:
+    - cd ${TF_ROOT}
+    - env
+    - echo "tf root is $TF_ROOT"
+    - pwd
+    - ls
+    - echo "Will launch job for env $ENV"
+    - echo -e "bucket = \"$TF_STATE_BUCKET\"" >> backend
+    - echo -e "key    = \"$ENV/$ENV\"" >> backend
+    - echo -e "region = \"$AWS_REGION\"" >> backend
+    - cat backend
+    - terraform init -backend-config=backend -reconfigure -input=false
+
+.plan:
+  stage: plan
+  extends: .init
+  variables:
+    extends: .common_variables
+  environment:
+    name: ${ENV}
+    action: start
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_OPEN_MERGE_REQUESTS  # Don't add it to a *branch* pipeline if it's already in a merge request pipeline.
+      when: never
+    - if: $CI_COMMIT_BRANCH        # If there's no open merge request, add it to a *branch* pipeline instead.
+  tags:
+    - docker
+  script:
+    - terraform validate
+    - terraform plan -input=false -out=plan-${ENV}.cache -var-file=vars/${ENV}.tfvars
+  artifacts:
+    paths:
+      - ${TF_ROOT}/plan-${ENV}.cache
+
+.apply:
+  stage: provision_infra
+  extends: .init
+  resource_group: ${ENV}
+  environment:
+    name: ${ENV}
+    action: start
+  tags:
+    - docker
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $TF_AUTO_DEPLOY == "true"
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+      when: manual
+  script:
+    - terraform apply -input=false plan-${ENV}.cache
+
+.destroy_terraform:
+  stage: destroy
+  extends: .init
+  resource_group: ${ENV}
+  environment:
+    name: ${ENV}
+    action: stop
+  when: manual
+  tags:
+    - docker
+  script:
+    - terraform refresh -input=false -var-file=vars/${ENV}.tfvars
+    - terraform destroy -auto-approve -var-file=vars/${ENV}.tfvars
+
+✅plan_prod:
+  extends: .plan
+  resource_group: prod
+  variables:
+    TF_ROOT: terraform
+    ENV: prod
+
+✅plan_staging:
+  extends: .plan
+  resource_group: staging
+  variables:
+    TF_ROOT: terraform
+    ENV: staging
+
+✅plan_tech:
+  extends: .plan
+  when: manual
+  resource_group: tech
+  variables:
+    TF_ROOT: terraform
+    ENV: tech
+
+🤔apply_prod:
+  extends: .apply
+  resource_group: prod
+  needs:
+    - ✅plan_prod
+  variables:
+    TF_ROOT: terraform
+    ENV: prod
+
+🙂apply_staging:
+  extends: .apply
+  resource_group: staging
+  needs:
+    - ✅plan_staging
+  variables:
+    TF_ROOT: terraform
+    ENV: staging
+
+🤔apply_tech:
+  variables:
+    ENV: tech
+    TF_ROOT: terraform
+  extends: .apply
+  resource_group: tech
+  needs:
+    - ✅plan_tech
+
+
+📛destroy_terraform_prod:
+  needs: []
+  variables:
+    ENV: prod
+    TF_ROOT: terraform
+  extends: .destroy_terraform
+  when: manual
+
+🙆destroy_terraform_staging:
+  needs: []
+  variables:
+    ENV: staging
+    TF_ROOT: terraform
+  extends: .destroy_terraform
+  when: manual
+
+📛destroy_terraform_tech:
+  needs: []
+  variables:
+    ENV: tech
+    TF_ROOT: terraform
+  extends: .destroy_terraform
+  when: manual

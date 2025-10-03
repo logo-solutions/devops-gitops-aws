@@ -1,0 +1,3 @@
+---
+# Set cert manager default vars
+cert_ingress_class: "nginx"

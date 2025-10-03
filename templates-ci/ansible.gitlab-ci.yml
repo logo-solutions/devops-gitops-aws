@@ -1,0 +1,110 @@
+
+.run_playbook:
+  when: manual
+  image: $ANSIBLE_CUSTOM_IMAGE
+  before_script:
+    - pip --no-cache-dir install --upgrade awscli
+  script:
+    - cd ansible
+    - ansible-playbook -i inventories/k8s_$ENV.ini --connection=local $ANSIBLE_PLAYBOOK.yml
+  tags:
+    - docker
+
+build_image:
+  stage: configure_cluster
+  when: manual
+  needs: []
+  image:
+    name: gcr.io/kaniko-project/executor:debug
+    entrypoint: [ "" ]
+  tags:
+    - docker
+  script:
+    - export
+    - echo "{\"auths\":{\"$CI_REGISTRY\":{\"auth\":\"$(echo -n ${CI_REGISTRY_USER}:${CI_REGISTRY_PASSWORD} | base64)\"}}}" > /kaniko/.docker/config.json
+    - /kaniko/executor --context $CI_PROJECT_DIR --dockerfile $CI_PROJECT_DIR/ansible/Dockerfile --destination $ANSIBLE_CUSTOM_IMAGE:$CI_COMMIT_REF_SLUG --destination $ANSIBLE_CUSTOM_IMAGE:latest
+
+.configure_cluster:
+  stage: configure_cluster
+  extends: .run_playbook
+  variables:
+    TF_TARGET: ${ENV}/${ENV}
+    ANSIBLE_PLAYBOOK: "configure_cluster"
+
+
+.reset_cluster_apps_namespaces:
+  stage: configure_cluster
+  extends: .run_playbook
+  variables:
+    TF_TARGET: ${ENV}/${ENV}
+    ANSIBLE_PLAYBOOK: "reset_namespaces"
+
+
+🙆reset_ns_staging:
+  extends: .reset_cluster_apps_namespaces
+  needs: []
+  variables:
+    ENV: staging
+    TF_TARGET: ${ENV}/${ENV}
+
+🙆reset_ns_prod:
+  extends: .reset_cluster_apps_namespaces
+  needs: []
+  variables:
+    ENV: prod
+    TF_TARGET: ${ENV}/${ENV}
+
+🙆configure_cluster_staging:
+  extends: .configure_cluster
+  needs: []
+  variables:
+    ENV: staging
+    TF_TARGET: ${ENV}/${ENV}
+
+🙅configure_cluster_prod:
+  extends: .configure_cluster
+  needs: []
+  variables:
+    ENV: prod
+    TF_TARGET: ${ENV}/${ENV}
+
+🙅configure_cluster_tech:
+  extends: .configure_cluster
+  needs: []
+  variables:
+    ENV: tech
+    TF_TARGET: ${ENV}/${ENV}
+
+.destroy_ansible:
+  stage: destroy
+  extends: .run_playbook
+  environment:
+    name: $ENV
+    action: stop
+  variables:
+    ANSIBLE_PLAYBOOK: "teardown_cluster"
+    TF_TARGET: ${ENV}/${ENV}
+
+🙆destroy_ansible_staging:
+  stage: destroy
+  extends: .destroy_ansible
+  needs: []
+  variables:
+    ENV: staging
+    TF_TARGET: ${ENV}/${ENV}
+
+📛destroy_ansible_prod:
+  stage: destroy
+  extends: .destroy_ansible
+  needs: []
+  variables:
+    ENV: prod
+    TF_TARGET: ${ENV}/${ENV}
+
+📛destroy_ansible_tech:
+  stage: destroy
+  extends: .destroy_ansible
+  needs: []
+  variables:
+    ENV: tech
+    TF_TARGET: ${ENV}/${ENV}

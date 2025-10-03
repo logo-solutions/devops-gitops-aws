@@ -1,0 +1,33 @@
+cluster:
+  name: "${compute.cluster_name}"
+  id: "${compute.cluster_id}"
+  endpoint: "${compute.cluster_endpoint}"
+  cert: "${compute.cluster_certificate_authority_data}"
+  kubeconfig: ${jsonencode(compute.cluster_kubeconfig)}
+%{ if backup != null }
+backups:
+  pg:
+    bucket_id: "${backup.pg_backup.bucket.s3_bucket_id}"
+    bucket_arn: "${backup.pg_backup.bucket.s3_bucket_arn}"
+    bucket_region: "${backup.pg_backup.bucket.s3_bucket_region}"
+    iam_user_name: "${backup.pg_backup.user.name}"
+    iam_user_aws_access_key_id: "${backup.pg_backup.user.aws_access_key_id}"
+    iam_user_aws_secret_access_key: "${backup.pg_backup.user.aws_secret_access_key}"
+%{ endif }
+%{ if secrets != null }
+secrets:
+  region: "${secrets.region}"
+  iam_user_name: "${secrets.name}"
+  iam_user_aws_access_key_id: "${secrets.aws_access_key_id}"
+  iam_user_aws_secret_access_key: "${secrets.aws_secret_access_key}"
+%{ endif }
+%{ if (managed_resources != null && length(managed_resources) > 0) }
+managed_clusters:
+%{ for r in managed_resources ~}
+- name: "${r.cluster_name}"
+  id: "${r.cluster_id}"
+  endpoint: "${r.cluster_endpoint}"
+  cert: "${r.cluster_certificate_authority_data}"
+  kubeconfig: ${jsonencode(r.cluster_kubeconfig)}
+%{ endfor ~}
+%{ endif }

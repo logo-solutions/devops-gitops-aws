@@ -1,0 +1,80 @@
+redis-ha:
+  enabled: true
+server:
+  replicas: 2
+  env:
+    - name: ARGOCD_API_SERVER_REPLICAS
+      value: '2'
+    - name: "ARGOCD_GPG_ENABLED"
+      value: "false"
+  configEnabled: true
+  config:
+    url: https://{{ argo_suffix + '.' + dns.base_host }}
+  extraArgs:
+    - --insecure
+  ingress:
+    annotations:
+      nginx.ingress.kubernetes.io/backend-protocol: "HTTP"
+      nginx.ingress.kubernetes.io/secure-backends: "true"
+      cert-manager.io/cluster-issuer: {{ argo_cert_issuer }}
+      kubernetes.io/tls-acme: "true"
+    enabled: true
+    ingressClassName: nginx
+    hosts:
+      - {{ argo_suffix + '.' + dns.base_host }}
+    tls:
+      - hosts:
+          - {{ argo_suffix + '.' + dns.base_host }}
+        secretName: argo-www-tls-secret
+    https: true
+  ingressGrpc:
+    annotations:
+      nginx.ingress.kubernetes.io/backend-protocol: "GRPC"
+      nginx.ingress.kubernetes.io/secure-backends: "true"
+      cert-manager.io/cluster-issuer: {{ argo_cert_issuer }}
+      kubernetes.io/tls-acme: "true"
+    enabled: true
+    ingressClassName: nginx
+    hosts:
+      - {{ argo_grpc_suffix + '.' + dns.base_host }}
+    tls:
+      - hosts:
+          - {{ argo_grpc_suffix + '.' + dns.base_host }}
+        secretName: argo-api-tls-secret
+    https: true
+configs:
+  repositories:
+    takione-apps:
+      url: "{{ lookup('ansible.builtin.env', 'APPS_REPO_URL') }}"
+      name: "takione-apps"
+      type: "git"
+      username: "{{ lookup('ansible.builtin.env', 'APPS_REPO_USERNAME') }}"
+      password: "{{ lookup('ansible.builtin.env', 'APPS_REPO_PASSWORD') }}"
+  clusterCredentials:
+{% for c in argocd_deployer_tokens.results %}
+    - name: "{{ c.item.name }}"
+      server: "{{ c.item.endpoint }}"
+      config:
+        # In the future, when argo-cd is more mature on the subject
+        # https://www.modulo2.nl/blog/argocd-on-aws-with-multiple-clusters
+        # https://github.com/argoproj/argo-cd/issues/2347
+        #awsAuthConfig:
+        #  clusterName: string
+        #  roleARN: string
+        bearerToken: "{{ c.resources[0].data.token | b64decode }}"
+        tlsClientConfig:
+          caData: "{{ c.item.cert }}"
+{% endfor %}
+controller:
+  enableStatefulSet: true
+  args:
+    appResyncPeriod: 30
+  env:
+    - name: "ARGOCD_GPG_ENABLED"
+      value: "false"
+repoServer:
+  env:
+    - name: "ARGOCD_GPG_ENABLED"
+      value: "false"
+  securityContext:
+    seccompProfile: ~
